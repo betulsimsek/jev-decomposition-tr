@@ -122,26 +122,45 @@ Same posts, questions, arms and analysis code, with two open backends:
 | Qwen3.5-9B 4-bit | decoder LLM, open | local MLX, logprob trick from Privatemode's "System One from GLM Flash" | `run_decoder.py` |
 
 GLM-5.3-Flash itself needs ~200 GB of RAM, so a 9B decoder stands in for it.
-Qwen results are pending (slow run, ~2.4 s per forward pass on an M3).
 
-Jev vs Laya (paired bootstrap, `*` = 95% CI excludes zero):
+Effects (paired bootstrap, `*` = 95% CI excludes zero; full table in
+`results/compare.md`):
 
-| effect | Jev EN | Jev TR | Laya EN | Laya TR |
-|---|---|---|---|---|
-| add definition (M-raw − B-raw), accuracy | +0.045* | +0.015 | **−0.110*** | **−0.077*** |
-| naive split (D-noisyor − M-raw), accuracy | −0.123* | −0.102* | **+0.148*** | **+0.079*** |
-| split + fit (D-fit − M-fit), AUC | +0.009 | −0.007 | +0.039* | +0.023* |
+| effect | Jev EN | Jev TR | Laya EN | Laya TR | Qwen EN | Qwen TR |
+|---|---|---|---|---|---|---|
+| add definition (M-raw − B-raw), accuracy | +0.045* | +0.015 | **−0.110*** | **−0.077*** | +0.034 | −0.015 |
+| naive split (D-noisyor − M-raw), accuracy | −0.123* | −0.102* | **+0.148*** | **+0.079*** | −0.133* | −0.175* |
+| naive split, ECE | +0.219* | +0.172* | **−0.201*** | **−0.115*** | +0.232* | +0.276* |
+| split + fit (D-fit − M-fit), AUC | +0.009 | −0.007 | +0.039* | +0.023* | +0.028* | +0.010* |
 
-- **"Write the definition" is a Jev rule.** With the full definition Laya
-  turns timid: mean P(offensive) on offensive posts drops from 0.55 to 0.32.
-  Ranking barely moves; the loss is a threshold shift.
-- **"Don't noisy-OR" is a Jev rule too, and it flips.** Noisy-OR pushes
-  probabilities up. Jev is already centred, so it overshoots; timid Laya
-  gets corrected.
-- **The Turkish null is Jev-specific.** Split + fit adds ranking signal for
-  Laya in Turkish. Jev's Turkish AUC is already 0.92 (Laya 0.73), so a
-  ceiling effect is the simplest explanation.
-- **Split + fit (D-fit) never hurt significantly on either backend.**
+Mean P(offensive) on offensive / non-offensive posts, English:
+
+| | bare | with definition | noisy-OR |
+|---|---|---|---|
+| Jev | 0.65 / 0.37 | 0.71 / 0.33 | 0.91 / 0.70 |
+| Laya | 0.55 / 0.19 | **0.32 / 0.10** | 0.71 / 0.29 |
+| Qwen | **0.78 / 0.49** | 0.60 / 0.29 | 0.93 / 0.77 |
+
+- **The odd one out is Laya, not Jev.** Qwen follows Jev's rules; Laya
+  flips two of them. One model per architecture, so this is not a claim
+  about encoders in general.
+- **What decides it is the model's starting bias.** The definition and
+  noisy-OR both move probabilities: the definition pulls them down, noisy-OR
+  pushes them up. Eager Qwen (0.49 on non-offensive posts) is fixed by the
+  definition and wrecked by noisy-OR. Timid Laya (0.32 on offensive posts
+  once it sees the definition) is the reverse. Laya's ranking barely moves;
+  the loss is a threshold shift.
+- **Splitting helps less in Turkish on all three backends.** Split + fit AUC
+  gain: Jev +0.9 → −0.7, Laya +3.9 → +2.3, Qwen +2.8 → +1.0 points. Only
+  Jev drops to zero. A ceiling effect fits Jev but not Laya (Turkish AUC
+  0.73); language and corpus can't be separated here.
+- **Split + fit (D-fit) never hurt significantly** on any backend or
+  language, and improved accuracy significantly in 4 of 6.
+
+Rule of thumb: before porting prompt-shape rules to a new decision model,
+check its mean prediction on a few hundred labelled examples. If it is eager,
+a definition helps and noisy-OR hurts; if it is timid, the opposite. With
+labels, split and fit.
 
 ```bash
 uv run run_laya.py                 # ~10 min on an M3 -> results/laya/
