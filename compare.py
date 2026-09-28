@@ -37,7 +37,7 @@ def main(task: str = "offense") -> None:
     for name in ["accuracy", "auc", "ece"]:
         lines.append(f"## {name}\n")
         head = " | ".join(f"{b} {lang.upper()}" for b in ready for lang in LANGS)
-        lines.append(f"| arm | {head} |\n|---|" + "---|" * (2 * len(ready)))
+        lines.append(f"| arm | {head} |\n|---|" + "---|" * (len(LANGS) * len(ready)))
         for arm in ARMS:
             cells = [f"{METRICS[name](*_yp(data[b, lang], arm)):.3f}"
                      for b in ready for lang in LANGS]
@@ -46,7 +46,7 @@ def main(task: str = "offense") -> None:
 
     lines.append("## Effects (paired bootstrap, 95% CI)\n")
     head = " | ".join(f"{b} {lang.upper()}" for b in ready for lang in LANGS)
-    lines.append(f"| comparison | metric | {head} |\n|---|---|" + "---|" * (2 * len(ready)))
+    lines.append(f"| comparison | metric | {head} |\n|---|---|" + "---|" * (len(LANGS) * len(ready)))
     for a, b_arm in COMPARISONS:
         for name in ["accuracy", "auc", "ece"]:
             cells = []
