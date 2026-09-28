@@ -2,3 +2,4 @@
 __pycache__/
 data/
 results/qwen/run*.log
+results/openjev/run*.log

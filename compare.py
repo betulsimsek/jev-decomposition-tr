@@ -11,7 +11,8 @@ import numpy as np
 
 from analyze import COMPARISONS, LANGS, METRICS, RESULTS, load, paired_diff, predictions
 
-BACKENDS = {"jev": RESULTS, "laya": RESULTS / "laya", "qwen": RESULTS / "qwen"}
+BACKENDS = {"jev": RESULTS, "laya": RESULTS / "laya", "qwen": RESULTS / "qwen",
+            "openjev": RESULTS / "openjev"}
 ARMS = ["B-raw", "M-raw", "D-noisyor", "M-fit", "D-fit"]
 N_POSTS = 1000
 

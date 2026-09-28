@@ -1,4 +1,31 @@
-# Most of Jev's decomposition gain was the definition
+# Prompt-shape rules don't transfer between decision models
+
+**TL;DR.** Two claims about TypeSafe's Jev contradicted each other: splitting
+a question into atomic ones helps a lot, or it wrecks calibration. Tested on
+2,000 English and Turkish tweets across four decision models:
+
+| | Jev | Qwen3.5-9B (decoder) | Laya (encoder) | OpenJev (encoder) |
+|---|---|---|---|---|
+| add the full definition, accuracy (EN) | +4.5* | +3.4 | **−11.0*** | **−11.4*** |
+| split + noisy-OR, ECE (EN) | worse* | worse* | **better*** | worse* |
+| split + fitted weights, accuracy (EN) | +2.4* | +3.9* | +2.6* | +4.1* |
+
+- **Noisy-OR's effect follows the model's starting bias.** It pushes
+  probabilities up: eager models (Jev, Qwen, OpenJev) get worse, timid Laya
+  gets better.
+- **The definition's effect is model-specific.** It helps Jev and Qwen and
+  hurts both encoders, for different reasons: OpenJev breaks on its length
+  (a one-sentence version works), Laya turns timid at any definition.
+- **Split + fitted weights never hurt significantly**, on any model or
+  language. It is the only rule that transferred.
+- **Splitting helps less in Turkish** on every model that reads Turkish.
+
+`*` = 95% paired-bootstrap CI excludes zero. Details: Phase 1 (Jev) below,
+[Phase 2](#phase-2-is-it-a-jev-quirk) (Laya, Qwen),
+[Phase 3](#phase-3-is-layas-timidity-an-encoder-thing) (OpenJev), full
+table in [`results/compare.md`](results/compare.md).
+
+## Phase 1: most of Jev's decomposition gain was the definition
 
 An independent test of TypeSafe's Jev (`jev-1.13.0`) on one open question:
 **does splitting a judgment into atomic questions help, and does that hold
@@ -159,8 +186,8 @@ Mean P(offensive) on offensive / non-offensive posts, English:
 
 Rule of thumb: before porting prompt-shape rules to a new decision model,
 check its mean prediction on a few hundred labelled examples. If it is eager,
-a definition helps and noisy-OR hurts; if it is timid, the opposite. With
-labels, split and fit.
+noisy-OR hurts; if it is timid, it helps. Whether a definition helps has to
+be measured (Phase 3). With labels, split and fit.
 
 ```bash
 uv run run_laya.py                 # ~10 min on an M3 -> results/laya/
@@ -169,8 +196,54 @@ uv run analyze.py --backend laya   # per-backend summary.md
 uv run compare.py                  # side by side -> results/compare.md
 ```
 
+## Phase 3: is Laya's timidity an encoder thing?
+
+Laya is one encoder, so Phase 2 couldn't say whether its behaviour belongs to
+encoders or to Laya. Phase 3 adds a second, independently trained encoder
+with the same instructions + yes/no interface:
+[OpenJev](https://huggingface.co/com-kotobalabs/open-jev-deberta-v3-large)
+(DeBERTa-v3-large, trained on banking77, SST-5 and BoolQ; English-only, so
+only its English numbers are interpreted). `run_openjev.py` sends each
+question on its own, because the model otherwise packs all questions into
+one sequence, and appends the one question's criteria to its instructions.
+
+| effect (EN) | Laya | OpenJev |
+|---|---|---|
+| add definition, accuracy | −0.110* | −0.114* |
+| add definition, ECE | +0.142* | +0.217* |
+| split + noisy-OR, ECE | −0.201* | +0.072* |
+| split + fit (D-fit − M-fit), accuracy | +0.026* | +0.041* |
+| split + fit, AUC | +0.039* | +0.055* |
+
+Mean P(offensive) on offensive / non-offensive posts, English:
+
+| | bare | full definition | one-sentence definition |
+|---|---|---|---|
+| Laya | 0.55 / 0.19 | **0.32 / 0.10** | 0.38 / 0.10 |
+| OpenJev | 0.70 / 0.47 | **0.88 / 0.77** | 0.55 / 0.36 |
+
+- **Timidity is Laya's, not the encoders'.** With the full definition
+  OpenJev goes the other way and calls almost everything offensive ("The
+  meeting is at 3pm in room 204." scores 0.94). Noisy-OR then hurts it like
+  it hurts the other eager models.
+- **Both encoders are hurt by the definition, for different reasons.**
+  `probe_short_def.py` asks the same definition in one sentence. OpenJev
+  recovers (ECE 0.078, better than bare), so its failure is the length of a
+  four-sentence instruction it never saw in training. Laya stays timid
+  (accuracy −6.8 EN / −7.8 TR vs bare, AUC unchanged), so its failure is how
+  it reads the definition's content. Exploratory; see
+  `results/probe_short_def.md`.
+- **Split + fit is still safe**, and helps OpenJev most of all.
+
+```bash
+uv run run_openjev.py              # ~20 min on an M3 -> results/openjev/
+uv run probe_short_def.py          # -> results/probe_short_def.md
+```
+
 ## Limitations
 
+- One model per backend; Jev's architecture is not public, so
+  "decoder vs encoder" can't be read off these results.
 - One task (offensive language) with a well-known published definition.
   Tasks without a crisp definition may benefit more from splitting.
 - The corpora are not parallel. Turkish scoring higher overall almost

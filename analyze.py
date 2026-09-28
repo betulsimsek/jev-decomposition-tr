@@ -214,7 +214,7 @@ if __name__ == "__main__":
     import argparse
 
     p = argparse.ArgumentParser()
-    p.add_argument("--backend", choices=["jev", "laya", "qwen"], default="jev",
+    p.add_argument("--backend", choices=["jev", "laya", "qwen", "openjev"], default="jev",
                    help="jev reads results/, others read results/<backend>/")
     backend = p.parse_args().backend
     main(RESULTS if backend == "jev" else RESULTS / backend)
