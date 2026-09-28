@@ -9,26 +9,29 @@ from pathlib import Path
 
 import numpy as np
 
-from analyze import COMPARISONS, LANGS, METRICS, RESULTS, load, paired_diff, predictions
+from analyze import COMPARISONS, METRICS, POSITIVE, RESULTS, load, paired_diff, predictions
+from questions import TASKS
 
 BACKENDS = {"jev": RESULTS, "laya": RESULTS / "laya", "qwen": RESULTS / "qwen",
             "openjev": RESULTS / "openjev"}
 ARMS = ["B-raw", "M-raw", "D-noisyor", "M-fit", "D-fit"]
-N_POSTS = 1000
+N_ITEMS = {"offense": 1000, "phish": 2000}
 
 
-def complete(path: Path) -> bool:
-    files = [path / f"raw_{lang}{s}.jsonl" for lang in LANGS for s in ("", "_bare")]
-    return all(f.exists() and sum(1 for _ in f.open()) == N_POSTS for f in files)
+def complete(path: Path, task: str) -> bool:
+    spec = TASKS[task]
+    files = [path / spec["subdir"] / f"raw_{lang}{s}.jsonl" for lang in spec["langs"] for s in ("", "_bare")]
+    return all(f.exists() and sum(1 for _ in f.open()) == N_ITEMS[task] for f in files)
 
 
-def main() -> None:
-    ready = {b: p for b, p in BACKENDS.items() if complete(p)}
+def main(task: str = "offense") -> None:
+    LANGS = TASKS[task]["langs"]
+    ready = {b: p for b, p in BACKENDS.items() if complete(p, task)}
     data = {}
     for b, path in ready.items():
         for lang in LANGS:
-            df = load(lang, path)
-            data[b, lang] = (df["label"].to_numpy(), predictions(df))
+            df = load(lang, path, task)
+            data[b, lang] = (df["label"].to_numpy(), predictions(df, task))
 
     lines = [f"# Backend comparison ({', '.join(ready)})\n"]
     for name in ["accuracy", "auc", "ece"]:
@@ -56,7 +59,7 @@ def main() -> None:
             lines.append(f"| {b_arm} − {a} | {name} | " + " | ".join(cells) + " |")
     lines.append("\n`*` = 95% CI excludes zero.\n")
 
-    lines.append("## Mean predicted P(offensive) on OFF / NOT posts\n")
+    lines.append(f"## Mean predicted P({POSITIVE[task]}) on positive / negative items\n")
     lines.append("| backend | lang | " + " | ".join(ARMS[:3]) + " |\n|---|---|---|---|---|")
     for b in ready:
         for lang in LANGS:
@@ -65,7 +68,7 @@ def main() -> None:
                      for arm in ARMS[:3]]
             lines.append(f"| {b} | {lang.upper()} | " + " | ".join(cells) + " |")
 
-    (RESULTS / "compare.md").write_text("\n".join(lines) + "\n")
+    (RESULTS / TASKS[task]["subdir"] / "compare.md").write_text("\n".join(lines) + "\n")
     print("\n".join(lines))
 
 
@@ -75,4 +78,8 @@ def _yp(item: tuple[np.ndarray, dict], arm: str) -> tuple[np.ndarray, np.ndarray
 
 
 if __name__ == "__main__":
-    main()
+    import argparse
+
+    p = argparse.ArgumentParser()
+    p.add_argument("--task", choices=list(TASKS), default="offense")
+    main(p.parse_args().task)

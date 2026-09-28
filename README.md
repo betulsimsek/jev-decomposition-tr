@@ -1,29 +1,50 @@
-# Prompt-shape rules don't transfer between decision models
+# Most of Jev's 62.6%→95% phishing jump was the definition; other models differ
 
-**TL;DR.** Two claims about TypeSafe's Jev contradicted each other: splitting
-a question into atomic ones helps a lot, or it wrecks calibration. Tested on
-2,000 English and Turkish tweets across four decision models:
+**TL;DR.** The most-shared result about TypeSafe's Jev is phishing
+detection going from 62.6% asked once to 95% when the question is split
+into five atomic signals with fitted weights
+([jev-phishing-bench](https://github.com/anisselbd/jev-phishing-bench)).
+On the same 2,000 PhishNChips emails both numbers replicate (61.8%, 95.2%),
+and the arm the original didn't test, **one question with the five signals
+written in as a definition, gets 88.2% with no labels**. For Jev, about 26
+of the ~33 points are the definition.
 
-| | Jev | Qwen3.5-9B (decoder) | Laya (encoder) | OpenJev (encoder) |
+That split is Jev's. Two open decision models reach a similar total by
+different routes (accuracy points, phishing):
+
+| | add definition | then split + fit | total |
+|---|---|---|---|
+| Jev | **+28.3*** | +5.4* | +35.3 |
+| Laya (encoder) | +12.3* | **+16.3*** | +28.7 |
+| OpenJev (encoder) | −1.4 | **+32.7*** | +32.4 |
+
+The same pattern on 2,000 English and Turkish tweets (offensive language),
+with Qwen3.5-9B as a fourth model:
+
+| accuracy (EN) | Jev | Qwen3.5-9B (decoder) | Laya (encoder) | OpenJev (encoder) |
 |---|---|---|---|---|
-| add the full definition, accuracy (EN) | +4.5* | +3.4 | **−11.0*** | **−11.4*** |
-| split + noisy-OR, ECE (EN) | worse* | worse* | **better*** | worse* |
-| split + fitted weights, accuracy (EN) | +2.4* | +3.9* | +2.6* | +4.1* |
+| add the full definition | +4.5* | +3.4 | **−11.0*** | **−11.4*** |
+| split + noisy-OR, ECE | worse* | worse* | **better*** | worse* |
+| split + fitted weights | +2.4* | +3.9* | +2.6* | +4.1* |
 
+- **Split + fitted weights never hurt significantly**, on any model, task
+  or language. It is the only prompt-shape rule that transferred.
+- **The definition's effect depends on model and task.** Laya: −11 on
+  tweets, +12 on emails. OpenJev: breaks on a long definition (a
+  one-sentence version works on tweets) and can't do phishing from any
+  single question.
 - **Noisy-OR's effect follows the model's starting bias.** It pushes
-  probabilities up: eager models (Jev, Qwen, OpenJev) get worse, timid Laya
-  gets better.
-- **The definition's effect is model-specific.** It helps Jev and Qwen and
-  hurts both encoders, for different reasons: OpenJev breaks on its length
-  (a one-sentence version works), Laya turns timid at any definition.
-- **Split + fitted weights never hurt significantly**, on any model or
-  language. It is the only rule that transferred.
+  probabilities up: eager models get worse, timid Laya on tweets gets
+  better. On phishing every model turns eager under it, and every model
+  loses calibration.
 - **Splitting helps less in Turkish** on every model that reads Turkish.
 
 `*` = 95% paired-bootstrap CI excludes zero. Details: Phase 1 (Jev) below,
 [Phase 2](#phase-2-is-it-a-jev-quirk) (Laya, Qwen),
-[Phase 3](#phase-3-is-layas-timidity-an-encoder-thing) (OpenJev), full
-table in [`results/compare.md`](results/compare.md).
+[Phase 3](#phase-3-is-layas-timidity-an-encoder-thing) (OpenJev),
+[Phase 4](#phase-4-the-62695-claim-on-its-own-data) (phishing). Full
+tables: [`results/compare.md`](results/compare.md) (tweets),
+[`results/phish/compare.md`](results/phish/compare.md) (emails).
 
 ## Phase 1: most of Jev's decomposition gain was the definition
 
@@ -240,23 +261,79 @@ uv run run_openjev.py              # ~20 min on an M3 -> results/openjev/
 uv run probe_short_def.py          # -> results/probe_short_def.md
 ```
 
+## Phase 4: the 62.6%→95% claim on its own data
+
+The claim that started this came from
+[jev-phishing-bench](https://github.com/anisselbd/jev-phishing-bench):
+PhishNChips v5.2, 2,000 emails (1,000 phishing), Jev and Claude Haiku only,
+single question vs five atomic signals + logistic regression. Phase 4 runs
+the same file (same SHA-256) through the same arms as Phases 1-3.
+
+- **State:** the email as a JSON object. Sender and link fields come before
+  the body, because OpenJev reads only the first 256 state tokens (11% of
+  emails are longer; the header fields average 78 tokens).
+- **Questions** (`questions.py`, `PHISH_SETS`): a bare question; our
+  monolithic question with the five signals written in as a definition;
+  the original five atomic signal questions, verbatim; and the original
+  single question with its criteria, verbatim, kept only to compare with
+  the published 62.6%.
+- **Analysis:** 5-fold out-of-fold fitting and paired bootstrap, as before.
+  The original used a 50/50 select/evaluate split; the headline numbers
+  still match.
+
+| accuracy | Jev | Laya | OpenJev |
+|---|---|---|---|
+| original single question | 0.618 (published 0.626) | 0.789 | 0.500 |
+| bare (B-raw) | 0.599 | 0.610 | 0.500 |
+| with definition (M-raw) | **0.882** | 0.733 | 0.486 |
+| split + noisy-OR (D-noisyor) | 0.794 | 0.589 | 0.500 |
+| split + fitted weights (D-fit) | **0.952** (published 0.951) | **0.897** | **0.824** |
+
+- **Jev:** the definition alone is worth +28.3 points with no labels;
+  splitting and fitting add +5.4 on top and give the best calibration
+  (ECE 0.016).
+- **Laya:** the definition helps here (+12.3) though it hurt on tweets
+  (−11.0); splitting and fitting add +16.3. Its best single question is
+  the original criteria wording (78.9%).
+- **OpenJev:** no single question separates the classes (AUC 0.37–0.46)
+  while the atomic questions work (split + fit AUC 0.894). Its training
+  data (banking77, SST-5, BoolQ) has field-level yes/no questions but no
+  holistic "is this phishing?" judgment; that is a guess, not tested.
+- **Noisy-OR** makes every model eager on legitimate mail (mean
+  P(phishing) 0.55 / 0.72 / 0.94), because the atomic signals fire on
+  legitimate emails too (e.g. company files shared through Google Drive).
+
+Jev cost $0.11 for Phase 4. Qwen is not included: emails are 3-4× longer
+than tweets and the run would take over a day on a laptop.
+
+```bash
+uv run data_phish.py                            # -> data/phish_en.csv (checksum-verified)
+uv run run.py en --task phish                   # Jev, then: --set bare
+uv run run_laya.py --task phish
+uv run run_openjev.py --task phish
+uv run analyze.py --backend jev --task phish    # -> results/phish/summary.md
+uv run compare.py --task phish                  # -> results/phish/compare.md
+```
+
 ## Limitations
 
 - One model per backend; Jev's architecture is not public, so
   "decoder vs encoder" can't be read off these results.
-- One task (offensive language) with a well-known published definition.
-  Tasks without a crisp definition may benefit more from splitting.
-- The corpora are not parallel. Turkish scoring higher overall almost
+- Two tasks. PhishNChips email bodies are synthetic (LLM-written; the
+  links are real). Only one definition text was tried per task.
+- Both tasks have a crisp definition. Tasks without one may benefit more
+  from splitting.
+- The tweet corpora are not parallel. Turkish scoring higher overall almost
   certainly reflects the datasets (OLID is known to be noisy), not the
   language. Only within-language effects are interpreted.
-- Both corpora are public and older than the model; contamination can't be
-  ruled out. It would affect both languages.
+- All data is public and may be in training sets; contamination would
+  affect every arm of a model alike, not the differences between arms.
 - Instructions are English for both languages. Turkish instructions are an
   untested follow-up.
 - One atomic question set, one combination rule per arm, one model version.
   Jev returns probabilities rounded to two decimals.
-- Class balance is forced to 50/50; calibration at natural base rates
-  (20% TR, 33% EN) was not measured.
+- Classes are 50/50 in both tasks; calibration at natural base rates was
+  not measured.
 
 ## Reproduce
 

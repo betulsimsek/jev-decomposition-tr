@@ -52,7 +52,7 @@
 
 `*` = 95% CI excludes zero.
 
-## Mean predicted P(offensive) on OFF / NOT posts
+## Mean predicted P(offensive) on positive / negative items
 
 | backend | lang | B-raw | M-raw | D-noisyor |
 |---|---|---|---|---|

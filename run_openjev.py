@@ -18,6 +18,7 @@ The model code ships inside the model repo (typed_decisions/), not on PyPI;
 it is imported from the downloaded snapshot. Writes results/openjev/.
 """
 
+import argparse
 import json
 import sys
 from pathlib import Path
@@ -26,7 +27,7 @@ import pandas as pd
 from huggingface_hub import snapshot_download
 from tqdm import tqdm
 
-from questions import QUESTION_SETS
+from questions import TASKS, state_of
 
 REPO = "com-kotobalabs/open-jev-deberta-v3-large"
 OUT = Path("results/openjev")
@@ -38,25 +39,36 @@ def instructions(q) -> str:
     return f"{q.instructions} Yes: {q.criteria['true']}. No: {q.criteria['false']}."
 
 
-def run(model, lang: str, qset: str) -> None:
-    questions = {k: instructions(q) for k, q in QUESTION_SETS[qset].items()}
-    sample = pd.read_csv(f"data/sample_{lang}.csv", dtype={"id": str})
+def state_text(task: str, text: str) -> str:
+    # OpenJev takes a string state: the raw post, or the email object as JSON
+    return text if task == "offense" else json.dumps(state_of(task, text), ensure_ascii=False)
+
+
+def run(model, task: str, lang: str, qset: str) -> None:
+    spec = TASKS[task]
+    questions = {k: instructions(q) for k, q in spec["sets"][qset].items()}
+    sample = pd.read_csv(spec["data"].format(lang=lang), dtype={"id": str})
     suffix = "" if qset == "main" else f"_{qset}"
-    with (OUT / f"raw_{lang}{suffix}.jsonl").open("w") as f:
+    out = OUT / spec["subdir"] / f"raw_{lang}{suffix}.jsonl"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with out.open("w") as f:
         for row in tqdm(list(sample.itertuples()), desc=f"{lang} {qset}"):
-            nouls = {k: model.decide(row.text, [{"type": "noul", "instructions": text}])[0]["noul"]
+            state = state_text(task, row.text)
+            nouls = {k: model.decide(state, [{"type": "noul", "instructions": text}])[0]["noul"]
                      for k, text in questions.items()}
             record = {"id": row.id, "label": int(row.label), "model": REPO, "nouls": nouls}
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 
 if __name__ == "__main__":
+    p = argparse.ArgumentParser()
+    p.add_argument("--task", choices=list(TASKS), default="offense")
+    args = p.parse_args()
     path = snapshot_download(REPO)
     sys.path.insert(0, path)
     from typed_decisions.open_jev import OpenJev
 
-    OUT.mkdir(parents=True, exist_ok=True)
     model = OpenJev.from_pretrained(path)
-    for lang in ["en", "tr"]:
-        for qset in QUESTION_SETS:
-            run(model, lang, qset)
+    for lang in TASKS[args.task]["langs"]:
+        for qset in TASKS[args.task]["sets"]:
+            run(model, args.task, lang, qset)

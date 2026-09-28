@@ -27,7 +27,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import brier_score_loss, f1_score, roc_auc_score
 from sklearn.model_selection import StratifiedKFold
 
-from questions import ATOMIC_KEYS
+from questions import TASKS
 
 RESULTS = Path("results")
 LANGS = ["en", "tr"]
@@ -56,11 +56,12 @@ def oof_fit(X: np.ndarray, y: np.ndarray) -> np.ndarray:
     return out
 
 
-def predictions(df: pd.DataFrame) -> dict[str, np.ndarray]:
+def predictions(df: pd.DataFrame, task: str = "offense") -> dict[str, np.ndarray]:
+    spec = TASKS[task]
     y = df["label"].to_numpy()
-    b = df["offensive_bare"].to_numpy()
-    m = df["offensive"].to_numpy()
-    A = df[ATOMIC_KEYS].to_numpy()
+    b = df[spec["bare"]].to_numpy()
+    m = df[spec["mono"]].to_numpy()
+    A = df[spec["atomic"]].to_numpy()
     return {
         "B-raw": b,
         "B-fit": oof_fit(logit(b)[:, None], y),
@@ -96,7 +97,8 @@ def read_raw(path: Path) -> pd.DataFrame:
     return pd.DataFrame([{"id": r["id"], "label": r["label"], **r["nouls"]} for r in rows])
 
 
-def load(lang: str, results: Path = RESULTS) -> pd.DataFrame:
+def load(lang: str, results: Path = RESULTS, task: str = "offense") -> pd.DataFrame:
+    results = results / TASKS[task]["subdir"]
     main = read_raw(results / f"raw_{lang}.jsonl")
     bare = read_raw(results / f"raw_{lang}_bare.jsonl")
     df = main.merge(bare, on=["id", "label"], validate="one_to_one")
@@ -138,10 +140,19 @@ def interaction(ys, preds, a, b, fn) -> tuple[float, float, float]:
     return point, lo, hi
 
 
-def reliability_plot(preds: dict, ys: dict, results: Path) -> None:
-    fig, axes = plt.subplots(1, 2, figsize=(10, 4.6), sharey=True)
+TITLES = {
+    "offense": {"en": "English (OLID)", "tr": "Turkish (OffensEval-TR)"},
+    "phish": {"en": "PhishNChips v5.2"},
+}
+POSITIVE = {"offense": "offensive", "phish": "phishing"}
+
+
+def reliability_plot(preds: dict, ys: dict, results: Path, task: str = "offense") -> None:
+    langs = TASKS[task]["langs"]
+    fig, axes = plt.subplots(1, len(langs), figsize=(5 * len(langs), 4.6), sharey=True, squeeze=False)
+    axes = axes[0]
     edges = np.linspace(0, 1, 11)
-    for ax, lang in zip(axes, LANGS):
+    for ax, lang in zip(axes, langs):
         ax.plot([0, 1], [0, 1], color="#999", lw=1, ls="--")
         for arm in ["B-raw", "M-raw", "D-noisyor", "D-fit"]:
             p, y = preds[lang][arm], ys[lang]
@@ -153,20 +164,22 @@ def reliability_plot(preds: dict, ys: dict, results: Path) -> None:
                     xs.append(p[mask].mean())
                     fs.append(y[mask].mean())
             ax.plot(xs, fs, marker="o", ms=4, label=arm)
-        ax.set_title({"en": "English (OLID)", "tr": "Turkish (OffensEval-TR)"}[lang])
-        ax.set_xlabel("predicted P(offensive)")
-    axes[0].set_ylabel("observed fraction offensive")
-    axes[1].legend(loc="lower right", frameon=False)
+        ax.set_title(TITLES[task][lang])
+        ax.set_xlabel(f"predicted P({POSITIVE[task]})")
+    axes[0].set_ylabel(f"observed fraction {POSITIVE[task]}")
+    axes[-1].legend(loc="lower right", frameon=False)
     fig.tight_layout()
     fig.savefig(results / "reliability.png", dpi=160)
 
 
-def main(results: Path = RESULTS) -> None:
+def main(results: Path = RESULTS, task: str = "offense") -> None:
+    langs = TASKS[task]["langs"]
+    both = langs == LANGS  # TR − EN interaction only when both languages exist
     rows, preds, ys = [], {}, {}
-    for lang in LANGS:
-        df = load(lang, results)
+    for lang in langs:
+        df = load(lang, results, task)
         ys[lang] = df["label"].to_numpy()
-        preds[lang] = predictions(df)
+        preds[lang] = predictions(df, task)
         for arm, p in preds[lang].items():
             for name, fn in METRICS.items():
                 lo, hi = boot_ci(ys[lang], p, fn)
@@ -175,16 +188,19 @@ def main(results: Path = RESULTS) -> None:
                          value=fn(ys[lang], p), lo=lo, hi=hi, n=len(df))
                 )
     metrics = pd.DataFrame(rows)
+    results = results / TASKS[task]["subdir"]
     metrics.to_csv(results / "metrics.csv", index=False)
+    head = " | ".join(lang.upper() for lang in langs)
+    rule = "|---" * len(langs)
 
     lines = ["# Results\n"]
     for name in METRICS:
         table = metrics[metrics.metric == name].pivot(index="arm", columns="lang")
         lines.append(f"## {name}\n")
-        lines.append("| arm | EN | TR |\n|---|---|---|")
+        lines.append(f"| arm | {head} |\n|---{rule}|")
         for arm in ARMS:
             cells = []
-            for lang in LANGS:
+            for lang in langs:
                 v, lo, hi = (table.loc[arm, (c, lang)] for c in ("value", "lo", "hi"))
                 cells.append(f"{v:.3f} [{lo:.3f}, {hi:.3f}]")
             lines.append(f"| {arm} | " + " | ".join(cells) + " |")
@@ -195,18 +211,20 @@ def main(results: Path = RESULTS) -> None:
         "noise); compare point estimates and the paired differences below.\n"
     )
     lines.append("## Effects (paired bootstrap, 95% CI)\n")
-    lines.append("| comparison | metric | EN | TR | TR − EN |\n|---|---|---|---|---|")
+    extra = (" | TR − EN", "|---") if both else ("", "")
+    lines.append(f"| comparison | metric | {head}{extra[0]} |\n|---|---{rule}{extra[1]}|")
     for a, b in COMPARISONS:
         for name in ["accuracy", "auc", "ece"]:
             cells = []
-            for lang in LANGS:
+            for lang in langs:
                 d, lo, hi = paired_diff(ys[lang], preds[lang][a], preds[lang][b], METRICS[name])
                 cells.append(f"{d:+.3f} [{lo:+.3f}, {hi:+.3f}]")
-            d, lo, hi = interaction(ys, preds, a, b, METRICS[name])
-            cells.append(f"{d:+.3f} [{lo:+.3f}, {hi:+.3f}]")
+            if both:
+                d, lo, hi = interaction(ys, preds, a, b, METRICS[name])
+                cells.append(f"{d:+.3f} [{lo:+.3f}, {hi:+.3f}]")
             lines.append(f"| {b} − {a} | {name} | " + " | ".join(cells) + " |")
     (results / "summary.md").write_text("\n".join(lines) + "\n")
-    reliability_plot(preds, ys, results)
+    reliability_plot(preds, ys, results, task)
     print("\n".join(lines))
 
 
@@ -216,5 +234,6 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("--backend", choices=["jev", "laya", "qwen", "openjev"], default="jev",
                    help="jev reads results/, others read results/<backend>/")
-    backend = p.parse_args().backend
-    main(RESULTS if backend == "jev" else RESULTS / backend)
+    p.add_argument("--task", choices=list(TASKS), default="offense")
+    args = p.parse_args()
+    main(RESULTS if args.backend == "jev" else RESULTS / args.backend, args.task)

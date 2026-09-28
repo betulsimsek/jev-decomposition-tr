@@ -18,7 +18,7 @@ import pandas as pd
 from tqdm.asyncio import tqdm
 from typesafe_sdk import AsyncTypeSafeClient
 
-from questions import QUESTION_SETS
+from questions import TASKS, state_of
 
 MODEL = "jev-1.13.0"  # pinned, not jev-latest, so results stay reproducible
 RESULTS = Path("results")
@@ -39,13 +39,15 @@ def done_ids(path: Path) -> set[str]:
     return {json.loads(line)["id"] for line in path.open()}
 
 
-async def run(lang: str, qset: str, concurrency: int, limit: int | None) -> None:
-    questions = QUESTION_SETS[qset]
-    sample = pd.read_csv(f"data/sample_{lang}.csv", dtype={"id": str})
+async def run(task: str, lang: str, qset: str, concurrency: int, limit: int | None) -> None:
+    spec = TASKS[task]
+    questions = spec["sets"][qset]
+    sample = pd.read_csv(spec["data"].format(lang=lang), dtype={"id": str})
     if limit:
         sample = sample.head(limit)
     suffix = "" if qset == "main" else f"_{qset}"
-    out = RESULTS / f"raw_{lang}{suffix}.jsonl"
+    out = RESULTS / spec["subdir"] / f"raw_{lang}{suffix}.jsonl"
+    out.parent.mkdir(parents=True, exist_ok=True)
     todo = sample[~sample["id"].isin(done_ids(out))]
     print(f"{lang}: {len(todo)} to send, {len(sample) - len(todo)} cached")
 
@@ -59,7 +61,7 @@ async def run(lang: str, qset: str, concurrency: int, limit: int | None) -> None
             async def one(row) -> None:
                 async with sem:
                     try:
-                        resp = await client.system_one({"post": row.text}, questions)
+                        resp = await client.system_one(state_of(task, row.text), questions)
                     except Exception as e:  # keep going; a rerun retries it
                         errors.append((row.id, f"{type(e).__name__}: {e}"))
                         return
@@ -85,10 +87,11 @@ async def run(lang: str, qset: str, concurrency: int, limit: int | None) -> None
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("lang", choices=["tr", "en"])
-    p.add_argument("--set", dest="qset", choices=list(QUESTION_SETS), default="main")
+    p.add_argument("--task", choices=list(TASKS), default="offense")
+    p.add_argument("--set", dest="qset", choices=["main", "bare"], default="main")
     p.add_argument("--concurrency", type=int, default=16)
     p.add_argument("--limit", type=int, help="only the first N posts (pilot)")
     args = p.parse_args()
     load_api_key()
     RESULTS.mkdir(exist_ok=True)
-    asyncio.run(run(args.lang, args.qset, args.concurrency, args.limit))
+    asyncio.run(run(args.task, args.lang, args.qset, args.concurrency, args.limit))

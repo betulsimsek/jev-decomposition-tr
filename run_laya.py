@@ -17,7 +17,7 @@ import pandas as pd
 from laya import Router
 from tqdm import tqdm
 
-from questions import QUESTION_SETS
+from questions import TASKS, state_of
 
 CHECKPOINT = "multilingual"
 OUT = Path("results/laya")
@@ -31,15 +31,18 @@ def to_laya(questions: dict) -> dict:
     }
 
 
-def run(router: Router, lang: str, qset: str, batch: int) -> None:
-    questions = to_laya(QUESTION_SETS[qset])
-    sample = pd.read_csv(f"data/sample_{lang}.csv", dtype={"id": str})
+def run(router: Router, task: str, lang: str, qset: str, batch: int) -> None:
+    spec = TASKS[task]
+    questions = to_laya(spec["sets"][qset])
+    sample = pd.read_csv(spec["data"].format(lang=lang), dtype={"id": str})
     suffix = "" if qset == "main" else f"_{qset}"
-    with (OUT / f"raw_{lang}{suffix}.jsonl").open("w") as f:
+    out = OUT / spec["subdir"] / f"raw_{lang}{suffix}.jsonl"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with out.open("w") as f:
         for start in tqdm(range(0, len(sample), batch), desc=f"{lang} {qset}"):
             rows = sample.iloc[start:start + batch]
             results = router.predict_batch([
-                {"state": {"post": text}, "questions": questions, "model": CHECKPOINT}
+                {"state": state_of(task, text), "questions": questions, "model": CHECKPOINT}
                 for text in rows.text
             ])
             for row, res in zip(rows.itertuples(), results):
@@ -55,9 +58,9 @@ def run(router: Router, lang: str, qset: str, batch: int) -> None:
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("--batch", type=int, default=32)
+    p.add_argument("--task", choices=list(TASKS), default="offense")
     args = p.parse_args()
-    OUT.mkdir(parents=True, exist_ok=True)
     router = Router()
-    for lang in ["en", "tr"]:
-        for qset in QUESTION_SETS:
-            run(router, lang, qset, args.batch)
+    for lang in TASKS[args.task]["langs"]:
+        for qset in TASKS[args.task]["sets"]:
+            run(router, args.task, lang, qset, args.batch)
