@@ -211,8 +211,8 @@ noisy-OR hurts; if it is timid, it helps. Whether a definition helps has to
 be measured (Phase 3). With labels, split and fit.
 
 ```bash
-uv run run_laya.py                 # ~10 min on an M3 -> results/laya/
-uv run run_decoder.py              # hours; resumable -> results/qwen/
+uv run --extra local-models run_laya.py                 # ~10 min on an M3 -> results/laya/
+uv run --extra local-models run_decoder.py              # hours; resumable -> results/qwen/
 uv run analyze.py --backend laya   # per-backend summary.md
 uv run compare.py                  # side by side -> results/compare.md
 ```
@@ -257,8 +257,8 @@ Mean P(offensive) on offensive / non-offensive posts, English:
 - **Split + fit is still safe**, and helps OpenJev most of all.
 
 ```bash
-uv run run_openjev.py              # ~20 min on an M3 -> results/openjev/
-uv run probe_short_def.py          # -> results/probe_short_def.md
+uv run --extra local-models run_openjev.py              # ~20 min on an M3 -> results/openjev/
+uv run --extra local-models probe_short_def.py          # -> results/probe_short_def.md
 ```
 
 ## Phase 4: the 62.6%→95% claim on its own data
@@ -309,8 +309,8 @@ than tweets and the run would take over a day on a laptop.
 ```bash
 uv run data_phish.py                            # -> data/phish_en.csv (checksum-verified)
 uv run run.py en --task phish                   # Jev, then: --set bare
-uv run run_laya.py --task phish
-uv run run_openjev.py --task phish
+uv run --extra local-models run_laya.py --task phish
+uv run --extra local-models run_openjev.py --task phish
 uv run analyze.py --backend jev --task phish    # -> results/phish/summary.md
 uv run compare.py --task phish                  # -> results/phish/compare.md
 ```
@@ -355,13 +355,21 @@ uv run analyze.py                  # -> results/summary.md, reliability.png
 uv run streamlit run app.py        # http://localhost:8501
 ```
 
-Three tabs: **Dene** (type a sentence, see every arm and the atomic
-breakdown live; 2 requests per try), **Sonuçlar** (metrics with CIs,
-interactive reliability diagram, effects table), and **Örnekler** (posts
-where arms disagree, e.g. "definition helped" or "noisy-OR false alarm").
-The UI imports `analyze.py`, so its numbers match `results/summary.md`.
+The sidebar picks the task (tweets or phishing), the model (Jev, Laya,
+Qwen, OpenJev; only those with results for the task) and the language.
+Three tabs: **Sonuçlar** (a heatmap comparing every model's arms on one
+metric, then the chosen model's confidence intervals, reliability diagram
+and effects table), **Örnekler** (items where arms disagree, e.g.
+"definition helped" or "noisy-OR false alarm") and **Dene** (type a tweet
+or an email and ask Jev live; 2 requests per try). The UI imports
+`analyze.py`, so its numbers match the `summary.md` files.
 
-Or in Docker (the key is read at runtime, never baked into the image):
+The local-model runners (Laya, Qwen, OpenJev) need the optional extra:
+`uv sync --extra local-models` (torch, transformers, laya; mlx-lm is
+Apple Silicon only). The UI, the analysis and the Jev runner don't.
+
+Or in Docker (the key is read at runtime, never baked into the image; the
+image skips the local-model extra):
 
 ```bash
 docker build -t jev-decomposition-tr .

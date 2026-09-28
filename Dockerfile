@@ -7,7 +7,7 @@ COPY pyproject.toml uv.lock .python-version ./
 RUN uv sync --frozen --no-dev --no-install-project
 
 COPY *.py ./
-COPY data/sample_en.csv data/sample_tr.csv ./data/
+COPY data/sample_en.csv data/sample_tr.csv data/phish_en.csv ./data/
 COPY results/ ./results/
 
 EXPOSE 8501
