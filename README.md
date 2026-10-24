@@ -1,4 +1,4 @@
-# Most of Jev's 62.6%→95% phishing jump was the definition; other models differ
+# Most of Jev's 62.6%→95% phishing jump was the definition; OpenAI's Decisions needs it less
 
 **TL;DR.** The most-shared result about TypeSafe's Jev is phishing
 detection going from 62.6% asked once to 95% when the question is split
