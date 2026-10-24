@@ -9,14 +9,19 @@ and the arm the original didn't test, **one question with the five signals
 written in as a definition, gets 88.2% with no labels**. For Jev, about 26
 of the ~33 points are the definition.
 
-That split is Jev's. Two open decision models reach a similar total by
-different routes (accuracy points, phishing):
+That split is Jev's. Three open decision models reach a similar total,
+mostly from splitting (accuracy points, phishing, all four models on the
+same stratified 500 emails; Qwen ran only those):
 
 | | add definition | then split + fit | total |
 |---|---|---|---|
-| Jev | **+28.3*** | +5.4* | +35.3 |
-| Laya (encoder) | +12.3* | **+16.3*** | +28.7 |
-| OpenJev (encoder) | −1.4 | **+32.7*** | +32.4 |
+| Jev | **+28.8*** | +4.4* | +34.4 |
+| Laya (encoder) | +12.6* | **+18.0*** | +31.0 |
+| Qwen3.5-9B (decoder) | −1.4 | **+17.2*** | +29.8 |
+| OpenJev (encoder) | −1.2 | **+32.4*** | +32.2 |
+
+On all 2,000 emails (no Qwen): Jev +28.3 / +5.4, Laya +12.3 / +16.3,
+OpenJev −1.4 / +32.7.
 
 The same pattern on 2,000 English and Turkish tweets (offensive language),
 with Qwen3.5-9B as a fourth model:
@@ -39,12 +44,24 @@ with Qwen3.5-9B as a fourth model:
   loses calibration.
 - **Splitting helps less in Turkish** on every model that reads Turkish.
 
+**Phase 5 (Oct 2026): OpenAI's Decisions API, Jev's closed rival, on the
+same questions.** With the definition written in, the two are tied on
+English (tweets 73.8% vs 73.8%, emails 88.9% vs 88.2%). Decisions is ahead
+on Turkish tweets (+3.4*) and far ahead on the bare phishing question
+(77.8% vs 59.9%), so it leans on the definition less: +11.1 points from
+the definition and +7.5 from split + fit, versus Jev's +28.3 and +5.4.
+Split + fit is again the best or tied-best arm (phishing 96.4% vs Jev's
+95.2%), so the one rule that transferred now holds on five models.
+[Phase 5](#phase-5-openais-decisions-api).
+
 `*` = 95% paired-bootstrap CI excludes zero. Details: Phase 1 (Jev) below,
 [Phase 2](#phase-2-is-it-a-jev-quirk) (Laya, Qwen),
 [Phase 3](#phase-3-is-layas-timidity-an-encoder-thing) (OpenJev),
 [Phase 4](#phase-4-the-62695-claim-on-its-own-data) (phishing). Full
 tables: [`results/compare.md`](results/compare.md) (tweets),
-[`results/phish/compare.md`](results/phish/compare.md) (emails).
+[`results/phish/compare.md`](results/phish/compare.md) (emails),
+[`results/phish/compare_subset.md`](results/phish/compare_subset.md)
+(emails, four models on Qwen's 500).
 
 ## Phase 1: most of Jev's decomposition gain was the definition
 
@@ -281,13 +298,13 @@ the same file (same SHA-256) through the same arms as Phases 1-3.
   The original used a 50/50 select/evaluate split; the headline numbers
   still match.
 
-| accuracy | Jev | Laya | OpenJev |
-|---|---|---|---|
-| original single question | 0.618 (published 0.626) | 0.789 | 0.500 |
-| bare (B-raw) | 0.599 | 0.610 | 0.500 |
-| with definition (M-raw) | **0.882** | 0.733 | 0.486 |
-| split + noisy-OR (D-noisyor) | 0.794 | 0.589 | 0.500 |
-| split + fitted weights (D-fit) | **0.952** (published 0.951) | **0.897** | **0.824** |
+| accuracy | Jev | Laya | OpenJev | Qwen3.5-9B (500 subset) |
+|---|---|---|---|---|
+| original single question | 0.618 (published 0.626) | 0.789 | 0.500 | 0.690 |
+| bare (B-raw) | 0.599 | 0.610 | 0.500 | 0.638 |
+| with definition (M-raw) | **0.882** | 0.733 | 0.486 | 0.624 |
+| split + noisy-OR (D-noisyor) | 0.794 | 0.589 | 0.500 | 0.500 |
+| split + fitted weights (D-fit) | **0.952** (published 0.951) | **0.897** | **0.824** | **0.936** |
 
 - **Jev:** the definition alone is worth +28.3 points with no labels;
   splitting and fitting add +5.4 on top and give the best calibration
@@ -303,8 +320,17 @@ the same file (same SHA-256) through the same arms as Phases 1-3.
   P(phishing) 0.55 / 0.72 / 0.94), because the atomic signals fire on
   legitimate emails too (e.g. company files shared through Google Drive).
 
-Jev cost $0.11 for Phase 4. Qwen is not included: emails are 3-4× longer
-than tweets and the run would take over a day on a laptop.
+- **Qwen** ran on a stratified 500-email subset (250/250, fixed seed;
+  `run_decoder.py --task phish --sample 500`), because emails are 3-4×
+  longer than tweets and all 2,000 would take over a day on a laptop. It
+  reuses the KV cache of the prompt prefix shared by an email's questions
+  (cached vs uncached probabilities differ by at most ~0.02). The
+  definition doesn't move its accuracy (−1.4) but improves ranking (AUC
+  +5.6*); splitting and fitting add +17.2. `compare.py --task phish
+  --subset-of qwen` puts all four models on the same 500 emails; the other
+  three score there within about a point of their full-data numbers.
+
+Jev cost $0.11 for Phase 4.
 
 ```bash
 uv run data_phish.py                            # -> data/phish_en.csv (checksum-verified)
@@ -313,11 +339,70 @@ uv run --extra local-models run_laya.py --task phish
 uv run --extra local-models run_openjev.py --task phish
 uv run analyze.py --backend jev --task phish    # -> results/phish/summary.md
 uv run compare.py --task phish                  # -> results/phish/compare.md
+uv run --extra local-models run_decoder.py --task phish --sample 500
+uv run compare.py --task phish --subset-of qwen # -> results/phish/compare_subset.md
+```
+
+## Phase 5: OpenAI's Decisions API
+
+OpenAI's [Decisions API](https://developers.openai.com/api/docs/guides/decisions)
+(`gpt-6-luna`, generally available 22 Oct 2026) asks typed questions about
+an input and returns probabilities, the same shape as Jev's Nouls. Phase 5
+sends it every item and question from Phases 1 and 4, unchanged.
+
+- **Mapping** (`run_decisions.py`): each Noul is a `predicate` question.
+  Decisions has no criteria field, so a Noul's criteria are appended to
+  its instructions as "True if ... / False if ...". The state goes in as
+  an `input_json` part, so the model sees the same object Jev sees.
+  Monolithic and atomic questions share a request, the bare question gets
+  its own, as with Jev.
+- **No refusals** in 8,000 requests. Probabilities come back with two
+  decimals, often exactly 0 or 1; the analysis clips them as before.
+- **Cost:** 6.2M input tokens, **$0.62** (output tokens are free). The
+  service adds about 1,000 tokens of overhead per request, so it cost more
+  than Jev here despite the lower list price.
+
+Same items, Decisions − Jev (accuracy points; `results/jev_vs_decisions.md`,
+`results/phish/jev_vs_decisions.md`):
+
+| arm | tweets EN | tweets TR | emails |
+|---|---|---|---|
+| bare (B-raw) | +0.3 | −1.1 | **+17.9*** |
+| with definition (M-raw) | 0.0 | **+3.4*** | +0.7 |
+| split + noisy-OR | **+5.6*** | **+10.0*** | **−3.9*** |
+| split + fitted weights (D-fit) | +0.3 | +2.0 | **+1.2*** |
+
+Within Decisions (accuracy points):
+
+| | tweets EN | tweets TR | emails |
+|---|---|---|---|
+| add definition | +4.2* | +6.0* | +11.1* |
+| split + fit vs definition + fit | +3.0* | −1.1 | +7.5* |
+| noisy-OR vs definition | −6.7* | −3.6* | −13.4* |
+
+- **Decisions is Jev's peer on English and better on Turkish.** On tweets
+  it ties Jev on every English arm except noisy-OR; on Turkish it is ahead
+  once the definition is in.
+- **It needs the definition less.** Asked bare whether an email is
+  phishing, it gets 77.8% where Jev gets 59.9%. The definition still adds
+  11 points, but the "62.6%→95%" story would read "78%→96%" for Decisions.
+- **Same rules as the other four models.** Split + fitted weights never
+  hurt significantly; noisy-OR costs accuracy and calibration everywhere
+  (phishing ECE +0.18*); splitting helps less in Turkish (−1.1, n.s.).
+
+```bash
+printf 'OPENAI_API_KEY=%s\n' sk-... > ~/.config/openai/.env   # or export it
+uv run run_decisions.py en --estimate                         # request count and cost, sends nothing
+uv run run_decisions.py en                                    # then: tr; --set bare; --task phish
+uv run analyze.py --backend decisions                         # -> results/decisions/summary.md
+uv run analyze.py --backend decisions --task phish
+uv run compare.py && uv run compare.py --task phish           # all backends
+uv run head_to_head.py offense && uv run head_to_head.py phish
 ```
 
 ## Limitations
 
-- One model per backend; Jev's architecture is not public, so
+- One model per backend; Jev's and Decisions' architectures are not public, so
   "decoder vs encoder" can't be read off these results.
 - Two tasks. PhishNChips email bodies are synthetic (LLM-written; the
   links are real). Only one definition text was tried per task.

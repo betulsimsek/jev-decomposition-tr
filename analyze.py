@@ -103,6 +103,10 @@ def load(lang: str, results: Path = RESULTS, task: str = "offense") -> pd.DataFr
     bare = read_raw(results / f"raw_{lang}_bare.jsonl")
     df = main.merge(bare, on=["id", "label"], validate="one_to_one")
     assert len(df) == len(main) == len(bare), "main and bare runs cover different posts"
+    refused = df.isna().any(axis=1)  # Decisions can refuse a question; it is stored as null
+    if refused.any():
+        print(f"{results} {lang}: dropping {refused.sum()} items with a refused question")
+        df = df[~refused]
     return df.sort_values("id").reset_index(drop=True)
 
 
@@ -232,7 +236,7 @@ if __name__ == "__main__":
     import argparse
 
     p = argparse.ArgumentParser()
-    p.add_argument("--backend", choices=["jev", "laya", "qwen", "openjev"], default="jev",
+    p.add_argument("--backend", choices=["jev", "laya", "qwen", "openjev", "decisions"], default="jev",
                    help="jev reads results/, others read results/<backend>/")
     p.add_argument("--task", choices=list(TASKS), default="offense")
     args = p.parse_args()

@@ -25,12 +25,13 @@ from run import MODEL, load_api_key
 st.set_page_config(page_title="Ayrıştırma Paradoksu", layout="wide")
 
 TASK_NAMES = {"offense": "Saldırgan tweet (Faz 1-3)", "phish": "Phishing e-postası (Faz 4)"}
-BACKENDS = {"jev": "Jev", "laya": "Laya", "qwen": "Qwen3.5-9B", "openjev": "OpenJev"}
+BACKENDS = {"jev": "Jev", "laya": "Laya", "qwen": "Qwen3.5-9B", "openjev": "OpenJev", "decisions": "OpenAI Decisions"}
 BACKEND_DESC = {
     "jev": "TypeSafe'in kapalı karar modeli (`jev-1.13.0`)",
     "laya": "Açık encoder, ModernBERT tabanlı, çok dilli",
     "qwen": "Açık decoder LLM, logprob hilesiyle karar modeline çevrildi",
     "openjev": "Açık encoder, DeBERTa-v3-large, sadece İngilizce",
+    "decisions": "OpenAI'ın kapalı karar API'si (`gpt-6-luna`), Jev'in doğrudan rakibi",
 }
 LANG_NAMES = {
     "offense": {"tr": "Türkçe (OffensEval-TR)", "en": "İngilizce (OLID)"},
